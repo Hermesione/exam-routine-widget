@@ -1,0 +1,49 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse and logic checks
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\check.ps1
+
+      - name: Render and validate exports
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\qa-export.ps1
+
+      - name: Build portable ZIP
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\build.ps1
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer (validation)
+        shell: powershell
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw 'ISCC.exe not found after installing Inno Setup' }
+          & $iscc .\installer\ExamRoutineWidget.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-zip
+          path: dist/*.zip
+          if-no-files-found: error

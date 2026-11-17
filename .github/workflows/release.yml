@@ -1,0 +1,68 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches version.txt
+        shell: powershell
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $version = (Get-Content -Raw -LiteralPath .\version.txt).Trim()
+          if ($tag -ne $version) {
+            throw "Tag v$tag does not match version.txt ($version). Bump version.txt before tagging."
+          }
+          Write-Output "version: $version"
+
+      - name: Parse and logic checks
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\check.ps1
+
+      - name: Render and validate exports
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\qa-export.ps1
+
+      - name: Build portable ZIP
+        shell: powershell
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\build.ps1
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $iscc) { throw 'ISCC.exe not found after installing Inno Setup' }
+          & $iscc .\installer\ExamRoutineWidget.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      - name: Checksums
+        shell: powershell
+        run: |
+          $lines = Get-ChildItem -Path .\dist -File |
+            Where-Object { $_.Extension -in @('.zip', '.exe') } |
+            Sort-Object Name |
+            ForEach-Object {
+              '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+            }
+          Set-Content -Path .\dist\SHA256SUMS.txt -Value $lines -Encoding ascii
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -1,0 +1,23 @@
+# User data and logs
+data/
+widget.log
+
+# Personal artifacts / not published
+HANDOFF.md
+mac/
+routine-card.html
+screenshot.png
+test-*.png
+
+# Build output
+dist/
+*.zip
+*.exe
+*.bak
+*.tmp
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.vs/
+.vscode/
